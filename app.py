@@ -250,33 +250,47 @@ class QintianZiweiGold:
         return {2: "水二局", 3: "木三局", 4: "金四局", 5: "土五局", 6: "火六局"}[ju_num]
 
     def _arrange_14_major_stars(self):
+        """
+        紫微定盤 — 採 iztro 開源庫驗證過的演算法 (cross-checked with 紫微斗數全書「安星訣」):
+          1. offset=0; 找最小 offset 使 (day+offset) % ju == 0
+          2. quotient = (day+offset)//ju, quotient %= 12
+          3. ziwei_idx (iztro 索引, 0=寅) = quotient-1
+          4. offset 偶 → +offset; 奇 → -offset
+          5. 轉成本程式索引 (0=子): our = (iztro+2) % 12
+        天府逆排於紫微對宮: tianfu_iztro = (12 - ziwei_iztro) % 12
+        14 主星 offsets 依「天府順行有太陰,貪狼而後巨門臨,隨來天相天梁繼,七殺空三是破軍」
+        → 破軍 offset = +10 (不是 +7)
+        """
         day = self.day_num
         ju = self.ju_num
-        start_positions = {2: 1, 3: 2, 4: 4, 5: 6, 6: 8}
-        current_start = start_positions[ju]
-        temp_day = day
-        while temp_day > ju:
-            temp_day -= ju
-            current_start = (current_start + 1) % 12
-        if temp_day == 0:
-            ziwei_idx = (current_start - 1) % 12
+
+        offset = 0
+        while (day + offset) % ju != 0:
+            offset += 1
+        quotient = ((day + offset) // ju) % 12
+        ziwei_iztro = quotient - 1
+        if offset % 2 == 0:
+            ziwei_iztro += offset
         else:
-            ziwei_idx = (current_start + temp_day - 1) % 12
+            ziwei_iztro -= offset
+        ziwei_iztro %= 12
+        # 轉換: iztro 0=寅 → 本程式 0=子
+        ziwei_idx = (ziwei_iztro + 2) % 12
 
         self.palaces[self.zhi_list[ziwei_idx]]["stars"].append("紫微")
         offsets_ziwei = {"天機": -1, "太陽": -3, "武曲": -4, "天同": -5, "廉貞": -8}
-        for star, offset in offsets_ziwei.items():
-            idx = (ziwei_idx + offset) % 12
+        for star, off in offsets_ziwei.items():
+            idx = (ziwei_idx + off) % 12
             self.palaces[self.zhi_list[idx]]["stars"].append(star)
 
-        tianfu_map = {0: 4, 1: 3, 2: 2, 3: 1, 4: 0, 5: 11,
-                      6: 10, 7: 9, 8: 8, 9: 7, 10: 6, 11: 5}
-        tianfu_idx = tianfu_map[ziwei_idx]
+        # 天府 = 紫微對宮 (寅申軸對稱)。iztro: tianfu_iztro = (12 - ziwei_iztro) % 12
+        tianfu_iztro = (12 - ziwei_iztro) % 12
+        tianfu_idx = (tianfu_iztro + 2) % 12
         self.palaces[self.zhi_list[tianfu_idx]]["stars"].append("天府")
         offsets_tianfu = {"太陰": 1, "貪狼": 2, "巨門": 3,
-                          "天相": 4, "天梁": 5, "七殺": 6, "破軍": 7}
-        for star, offset in offsets_tianfu.items():
-            idx = (tianfu_idx + offset) % 12
+                          "天相": 4, "天梁": 5, "七殺": 6, "破軍": 10}
+        for star, off in offsets_tianfu.items():
+            idx = (tianfu_idx + off) % 12
             self.palaces[self.zhi_list[idx]]["stars"].append(star)
 
     def _arrange_auxiliary_stars(self):
@@ -290,8 +304,19 @@ class QintianZiweiGold:
         lu_map = {"甲": 2, "乙": 3, "丙": 5, "丁": 6, "戊": 5,
                   "己": 6, "庚": 8, "辛": 9, "壬": 11, "癸": 0}
         lu_idx = lu_map[self.year_gan]
+        self.palaces[self.zhi_list[lu_idx]]["stars"].append("祿存")
         self.palaces[self.zhi_list[(lu_idx + 1) % 12]]["stars"].append("擎羊")
         self.palaces[self.zhi_list[(lu_idx - 1) % 12]]["stars"].append("陀羅")
+
+        # 天魁 / 天鉞 (年干起)
+        kui_yue = {"甲": (1, 7), "戊": (1, 7), "庚": (1, 7),
+                   "乙": (0, 8), "己": (0, 8),
+                   "丙": (11, 9), "丁": (11, 9),
+                   "辛": (2, 6),
+                   "壬": (3, 5), "癸": (3, 5)}
+        kui_idx, yue_idx = kui_yue[self.year_gan]
+        self.palaces[self.zhi_list[kui_idx]]["stars"].append("天魁")
+        self.palaces[self.zhi_list[yue_idx]]["stars"].append("天鉞")
 
         year_zhi_idx = self._get_index(self.year_zhi, self.zhi_list)
         huo_start, ling_start = 0, 0
@@ -305,14 +330,25 @@ class QintianZiweiGold:
             huo_start, ling_start = 9, 10
         self.palaces[self.zhi_list[(huo_start + hour_idx) % 12]]["stars"].append("火星")
         self.palaces[self.zhi_list[(ling_start + hour_idx) % 12]]["stars"].append("鈴星")
-        self.palaces[self.zhi_list[(11 - hour_idx) % 12]]["stars"].append("地空")
+        # 天空: 太歲前一位 (年支 + 1)
+        year_zhi_idx_local = self._get_index(self.year_zhi, self.zhi_list)
+        self.palaces[self.zhi_list[(year_zhi_idx_local + 1) % 12]]["stars"].append("天空")
+        # 地劫: 從亥宮起子時順行
         self.palaces[self.zhi_list[(11 + hour_idx) % 12]]["stars"].append("地劫")
 
     def _arrange_misc_stars(self):
         year_zhi_idx = self._get_index(self.year_zhi, self.zhi_list)
+        # 天馬: 採「月馬」(月支三合馬位) — 寅午戌→申, 申子辰→寅, 巳酉丑→亥, 亥卯未→巳
+        month_zhi_idx = self._get_index(self.month_zhi, self.zhi_list)
         tian_ma_map = {2: 8, 6: 8, 10: 8, 8: 2, 0: 2, 4: 2,
                        5: 11, 9: 11, 1: 11, 11: 5, 3: 5, 7: 5}
-        self.palaces[self.zhi_list[tian_ma_map.get(year_zhi_idx, 8)]]["stars"].append("天馬")
+        self.palaces[self.zhi_list[tian_ma_map.get(month_zhi_idx, 8)]]["stars"].append("天馬")
+
+        # 天姚: 從丑宮起正月順行至生月
+        month_val = self.lunar.getMonth()
+        self.palaces[self.zhi_list[(1 + month_val - 1) % 12]]["stars"].append("天姚")
+        # 天刑: 從酉宮起正月順行至生月
+        self.palaces[self.zhi_list[(9 + month_val - 1) % 12]]["stars"].append("天刑")
 
         hong_luan_idx = (3 - year_zhi_idx) % 12
         self.palaces[self.zhi_list[hong_luan_idx]]["stars"].append("紅鸞")
@@ -438,7 +474,11 @@ with st.sidebar:
         "Australia/Sydney": 151.2, "Pacific/Auckland": 174.7,
     }
     default_lon = longitude_map.get(selected_timezone, 120.0)
-    longitude = st.number_input("出生地經度(可微調)", value=default_lon)
+    longitude = st.number_input(
+        "出生地經度(可微調)",
+        value=default_lon,
+        help="台北 121.5｜台中 120.68｜高雄 120.30｜台南 120.21｜新竹 120.97｜花蓮 121.61"
+    )
 
     if 'prev_sect' not in st.session_state:
         st.session_state.prev_sect = selected_sect
