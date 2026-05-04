@@ -428,7 +428,8 @@ class QintianZiweiGold:
         return da_xian_zhi, da_xian_gan
 
     def get_liu_nian(self, year):
-        solar = Solar.fromYmdHms(year, 1, 1, 0, 0, 0)
+        # 用 6/1 確保已過立春/春節,抓到正確的當年農曆干支(用 1/1 會抓到上一個農曆年)
+        solar = Solar.fromYmdHms(year, 6, 1, 0, 0, 0)
         return solar.getLunar().getYearZhi()
 
     def get_si_hua_for_gan(self, gan):
@@ -559,7 +560,7 @@ if 'chart' in st.session_state:
     liu_nian_zhi = chart.get_liu_nian(query_year)
 
     da_xian_hua_stars = chart.get_si_hua_for_gan(da_xian_gan) if da_xian_gan else []
-    liu_nian_gan = Solar.fromYmdHms(query_year, 1, 1, 0, 0, 0).getLunar().getYearGan()
+    liu_nian_gan = Solar.fromYmdHms(query_year, 6, 1, 0, 0, 0).getLunar().getYearGan()
     liu_nian_hua_stars = chart.get_si_hua_for_gan(liu_nian_gan)
 
     use_da_xian_view = st.sidebar.checkbox("啟用大限視角(旋轉盤面)", value=False)
