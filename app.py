@@ -875,25 +875,30 @@ if 'chart' in st.session_state:
             if buffer_aux:
                 cols.append(buffer_aux)
 
+            # 只有 命宮 / 大限命宮 / 流年命宮 才顯示自化 + 忌出
+            is_key_palace = (zhi == chart.ming_zhi or zhi == da_xian_zhi or zhi == liu_nian_zhi)
+
             # 自化映射: star_base → [hua, ...]
             self_hua_map = {}
-            for sh in p.get("self_hua", []):
-                self_hua_map.setdefault(sh["star"], []).append(sh["hua"])
+            if is_key_palace:
+                for sh in p.get("self_hua", []):
+                    self_hua_map.setdefault(sh["star"], []).append(sh["hua"])
 
             stars_html = '<div class="stars-area">'
             for c in cols:
                 stars_html += render_star_col(c, self_hua_map)
             stars_html += '</div>'
 
-            # 忌出標籤 (只標 hua=="忌" 的飛化出去)
-            ji_chu = [f for f in p["si_hua_out"] if f["hua"] == "忌"]
+            # 忌出標籤 (只標 hua=="忌" 的飛化出去, 且只在三大主宮顯示)
             ji_chu_html = ""
-            if ji_chu:
-                tags = "".join(
-                    f'<span class="foot-jichu">忌出→{f["target_zhi"]}</span>'
-                    for f in ji_chu
-                )
-                ji_chu_html = f'<div class="jichu-area">{tags}</div>'
+            if is_key_palace:
+                ji_chu = [f for f in p["si_hua_out"] if f["hua"] == "忌"]
+                if ji_chu:
+                    tags = "".join(
+                        f'<span class="foot-jichu">忌出→{f["target_zhi"]}</span>'
+                        for f in ji_chu
+                    )
+                    ji_chu_html = f'<div class="jichu-area">{tags}</div>'
 
             # footer
             ganzhi = f"{p['gan']}{zhi}"
@@ -978,5 +983,5 @@ if 'chart' in st.session_state:
         st.caption(
             "圖例: 淡紅底=大限命宮(大命) | 紅框=流年命宮(流命) | 綠字「來因宮」=年干所在宮 | "
             "化權紅・化忌深藍・化祿綠・化科淺藍 | "
-            "小徽章「自X」=該宮自化 | 紅標「忌出→X」=該宮飛忌到X宮"
+            "小徽章「自X」=自化(僅命/大限/流年命宮) | 紅標「忌出→X」=該宮飛忌到X宮(僅命/大限/流年命宮)"
         )
