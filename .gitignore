@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+desktop.ini
+.venv/
+.DS_Store
