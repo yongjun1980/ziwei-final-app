@@ -139,7 +139,8 @@ class QintianZiweiGold:
         for zhi in self.zhi_list:
             self.palaces[zhi] = {
                 "zhi": zhi, "gan": "", "name": "",
-                "stars": [], "si_hua_out": [], "si_hua_in": []
+                "stars": [], "si_hua_out": [], "si_hua_in": [],
+                "self_hua": []
             }
 
         # 選擇門派
@@ -392,12 +393,19 @@ class QintianZiweiGold:
                 for target_zhi, target_data in self.palaces.items():
                     clean_stars = [s.split('(')[0] for s in target_data["stars"]]
                     if star in clean_stars:
-                        data["si_hua_out"].append(
-                            {"target_zhi": target_zhi, "star": star, "hua": hua}
-                        )
-                        target_data["si_hua_in"].append(
-                            {"source_zhi": zhi, "star": star, "hua": hua}
-                        )
+                        if target_zhi == zhi:
+                            # 自化: 該宮天干使本宮內的星化曜
+                            data["self_hua"].append(
+                                {"star": star, "hua": hua}
+                            )
+                        else:
+                            # 飛化出去
+                            data["si_hua_out"].append(
+                                {"target_zhi": target_zhi, "star": star, "hua": hua}
+                            )
+                            target_data["si_hua_in"].append(
+                                {"source_zhi": zhi, "star": star, "hua": hua}
+                            )
                         break
 
     def _generate_analysis(self):
@@ -714,6 +722,44 @@ if 'chart' in st.session_state:
 .hua-ji   { background: #1A237E; }   /* 忌 */
 .hua-lu   { background: #2E7D32; }   /* 祿 */
 .hua-ke   { background: #4FC3F7; }   /* 科 */
+/* 自化徽章 — 比生年化曜小一號,加「自」字 */
+.self-hua-badge {
+    display: inline-block;
+    writing-mode: horizontal-tb;
+    -webkit-writing-mode: horizontal-tb;
+    text-orientation: mixed;
+    font-size: 8px;
+    line-height: 10px;
+    padding: 1px 2px;
+    border-radius: 2px;
+    color: #fff; font-weight: bold;
+    margin-top: 2px;
+    text-align: center;
+    letter-spacing: -0.5px;
+}
+.self-lu   { background: #2E7D32; }
+.self-quan { background: #D32F2F; }
+.self-ke   { background: #4FC3F7; }
+.self-ji   { background: #1A237E; }
+/* 忌出標籤 (footer) */
+.foot-jichu {
+    color: #D32F2F;
+    font-weight: bold;
+    font-size: 10px;
+    border: 1px solid #D32F2F;
+    border-radius: 3px;
+    padding: 1px 3px;
+    margin: 2px 1px 0 1px;
+    display: inline-block;
+    line-height: 1.2;
+    background: #fff;
+}
+.jichu-area {
+    padding: 2px;
+    text-align: center;
+    background: #fff;
+    border-top: 1px dashed #ddd;
+}
 .palace-footer {
     border-top: 1px solid #ccc;
     display: grid;
@@ -772,8 +818,10 @@ if 'chart' in st.session_state:
             ("寅", 4, 1), ("丑", 4, 2), ("子", 4, 3), ("亥", 4, 4),
         ]
 
-        def render_star_col(stars_in_col):
-            """render 一個直書 column,內容為從上到下的星曜列表"""
+        def render_star_col(stars_in_col, self_hua_map=None):
+            """render 一個直書 column,內容為從上到下的星曜列表
+            self_hua_map: {star_base: [hua, ...]} 該宮自化映射"""
+            self_hua_map = self_hua_map or {}
             html = '<div class="star-col">'
             for star_str in stars_in_col:
                 base = star_str.split('(')[0]
@@ -788,6 +836,14 @@ if 'chart' in st.session_state:
                         '祿': 'hua-lu', '科': 'hua-ke'
                     }.get(hua, 'hua-quan')
                     html += f'<span class="hua-badge {hua_cls}">{hua}</span>'
+                # 自化徽章 (在生年化曜徽章之後)
+                if base in self_hua_map:
+                    for sh_hua in self_hua_map[base]:
+                        sh_cls = {
+                            '祿': 'self-lu', '權': 'self-quan',
+                            '科': 'self-ke', '忌': 'self-ji'
+                        }.get(sh_hua, 'self-quan')
+                        html += f'<span class="self-hua-badge {sh_cls}">自{sh_hua}</span>'
             html += '</div>'
             return html
 
@@ -819,10 +875,25 @@ if 'chart' in st.session_state:
             if buffer_aux:
                 cols.append(buffer_aux)
 
+            # 自化映射: star_base → [hua, ...]
+            self_hua_map = {}
+            for sh in p.get("self_hua", []):
+                self_hua_map.setdefault(sh["star"], []).append(sh["hua"])
+
             stars_html = '<div class="stars-area">'
             for c in cols:
-                stars_html += render_star_col(c)
+                stars_html += render_star_col(c, self_hua_map)
             stars_html += '</div>'
+
+            # 忌出標籤 (只標 hua=="忌" 的飛化出去)
+            ji_chu = [f for f in p["si_hua_out"] if f["hua"] == "忌"]
+            ji_chu_html = ""
+            if ji_chu:
+                tags = "".join(
+                    f'<span class="foot-jichu">忌出→{f["target_zhi"]}</span>'
+                    for f in ji_chu
+                )
+                ji_chu_html = f'<div class="jichu-area">{tags}</div>'
 
             # footer
             ganzhi = f"{p['gan']}{zhi}"
@@ -870,7 +941,7 @@ if 'chart' in st.session_state:
             return (
                 f'<div class="{" ".join(classes)}" '
                 f'style="grid-row:{layout_zhi_to_pos[zhi][0]};grid-column:{layout_zhi_to_pos[zhi][1]};">'
-                f'{corner_html}{stars_html}{footer_html}'
+                f'{corner_html}{stars_html}{ji_chu_html}{footer_html}'
                 f'</div>'
             )
 
@@ -904,4 +975,8 @@ if 'chart' in st.session_state:
         html_grid += '</div></div>'
         st.markdown(html_grid, unsafe_allow_html=True)
 
-        st.caption("圖例: 淡紅底=大限命宮(大命) | 紅框=流年命宮(流命) | 綠字「來因宮」=年干所在宮 | 化權紅・化忌深藍・化祿綠・化科淺藍")
+        st.caption(
+            "圖例: 淡紅底=大限命宮(大命) | 紅框=流年命宮(流命) | 綠字「來因宮」=年干所在宮 | "
+            "化權紅・化忌深藍・化祿綠・化科淺藍 | "
+            "小徽章「自X」=該宮自化 | 紅標「忌出→X」=該宮飛忌到X宮"
+        )
