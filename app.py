@@ -444,6 +444,43 @@ class QintianZiweiGold:
             result[self.zhi_list[target_idx]] = name
         return result
 
+    def get_liu_nian_palace_names(self, liu_nian_zhi):
+        """流年視角下,各地支宮對應的宮名(流命/流兄/流夫...)"""
+        names = ["命", "兄", "夫", "子", "財", "疾",
+                 "遷", "友", "官", "田", "福", "父"]
+        ln_ming_idx = self._get_index(liu_nian_zhi, self.zhi_list)
+        result = {}
+        for i, name in enumerate(names):
+            target_idx = (ln_ming_idx - i) % 12
+            result[self.zhi_list[target_idx]] = name
+        return result
+
+    def get_da_xian_palace_short(self, da_xian_zhi):
+        """大限視角短名(大命/大兄/大夫...)"""
+        names = ["命", "兄", "夫", "子", "財", "疾",
+                 "遷", "友", "官", "田", "福", "父"]
+        dx_ming_idx = self._get_index(da_xian_zhi, self.zhi_list)
+        result = {}
+        for i, name in enumerate(names):
+            target_idx = (dx_ming_idx - i) % 12
+            result[self.zhi_list[target_idx]] = name
+        return result
+
+    def get_da_xian_age_range(self, da_xian_zhi):
+        """回傳該大限的虛歲區間 (start_age, end_age)。找不到回 None。"""
+        ming_idx = self._get_index(self.ming_zhi, self.zhi_list)
+        yang_gan = ["甲", "丙", "戊", "庚", "壬"]
+        is_yang_year = self.year_gan in yang_gan
+        is_male = self.gender == "男"
+        direction = 1 if (is_yang_year == is_male) else -1
+        target_idx = self._get_index(da_xian_zhi, self.zhi_list)
+        # da_xian_num such that (ming_idx + da_xian_num*direction) % 12 == target_idx
+        for n in range(12):
+            if (ming_idx + n * direction) % 12 == target_idx:
+                start = self.ju_num + n * 10
+                return start, start + 9
+        return None
+
 
 # --- 3. Streamlit 介面 ---
 
@@ -578,69 +615,292 @@ if 'chart' in st.session_state:
     with col2:
         st.subheader(f"十二宮盤面({view_title})")
 
+        # 主星集合(用來判斷是否粗體黑字)
+        MAIN_STARS = {"紫微", "天機", "太陽", "武曲", "天同", "廉貞",
+                      "天府", "太陰", "貪狼", "巨門", "天相", "天梁",
+                      "七殺", "破軍"}
+
+        # 宮名簡稱對照(本命視角)
+        NAME_SHORT = {
+            "命宮": "命", "兄弟": "兄", "夫妻": "夫", "子女": "子",
+            "財帛": "財", "疾厄": "疾", "遷移": "遷", "交友": "友",
+            "官祿": "官", "田宅": "田", "福德": "福", "父母": "父",
+        }
+
+        liu_nian_short = chart.get_liu_nian_palace_names(liu_nian_zhi)
+        da_xian_short = chart.get_da_xian_palace_short(da_xian_zhi) if da_xian_zhi else {}
+
+        # 來因宮: 年干在十二宮位中的位置(以宮干為準)
+        lai_yin_zhi = None
+        for zhi, p in chart.palaces.items():
+            if p["gan"] == chart.year_gan:
+                lai_yin_zhi = zhi
+                break
+
         st.markdown("""
 <style>
-.palace-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; font-family: monospace; }
-.palace-box { border: 1px solid #ddd; padding: 10px; background-color: #fff; border-radius: 5px; min-height: 180px; position: relative; transition: all 0.3s; }
-.palace-header { font-weight: bold; color: #333; margin-bottom: 5px; font-size: 0.9em; }
-.star-birth { color: #d32f2f; font-weight: bold; }
-.tag-dx { background: #e3f2fd; color: #1565c0; padding: 2px 5px; border-radius: 3px; font-size: 0.75em; margin-right: 3px; }
-.tag-ln { background: #e8f5e9; color: #2e7d32; padding: 2px 5px; border-radius: 3px; font-size: 0.75em; margin-right: 3px; }
-.highlight-dx { border: 2px solid #1976d2 !important; box-shadow: 0 0 5px rgba(25, 118, 210, 0.5); }
-.highlight-ln { border: 2px solid #388e3c !important; box-shadow: 0 0 5px rgba(56, 142, 60, 0.5); }
+.lifedna-wrap { font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif; }
+.lifedna-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(4, minmax(160px, auto));
+    gap: 0;
+    border: 2px solid #333;
+    background: #fff;
+}
+.palace {
+    border: 1px solid #bbb;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    min-height: 160px;
+    overflow: hidden;
+}
+.palace.dx-ming { background: #FFE4E1; }
+.palace.ln-ming { box-shadow: inset 0 0 0 3px #D32F2F; }
+.palace .corner-dx {
+    position: absolute; top: 2px; left: 2px;
+    background: #2E7D32; color: #fff; font-size: 10px;
+    padding: 1px 4px; border-radius: 2px; font-weight: bold; z-index: 2;
+}
+.palace .corner-ln {
+    position: absolute; top: 2px; right: 2px;
+    background: #D32F2F; color: #fff; font-size: 10px;
+    padding: 1px 4px; border-radius: 2px; font-weight: bold; z-index: 2;
+}
+.palace .lai-yin {
+    position: absolute; top: 18px; left: 2px;
+    writing-mode: vertical-rl; -webkit-writing-mode: vertical-rl;
+    color: #2E7D32; font-size: 11px; font-weight: bold;
+    letter-spacing: 1px; z-index: 2;
+}
+.stars-area {
+    flex: 1;
+    display: flex;
+    flex-direction: row-reverse;
+    justify-content: flex-start;
+    padding: 6px 6px 4px 18px;
+    gap: 4px;
+    align-items: flex-start;
+}
+.star-col {
+    writing-mode: vertical-rl;
+    -webkit-writing-mode: vertical-rl;
+    text-orientation: upright;
+    -webkit-text-orientation: upright;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1.15;
+    font-size: 14px;
+}
+.star-main { color: #000; font-weight: bold; }
+.star-aux  { color: #444; font-weight: normal; font-size: 13px; }
+.hua-badge {
+    display: inline-block;
+    writing-mode: horizontal-tb;
+    -webkit-writing-mode: horizontal-tb;
+    text-orientation: mixed;
+    font-size: 10px;
+    width: 14px; height: 14px; line-height: 14px;
+    border-radius: 50%;
+    color: #fff; font-weight: bold;
+    margin-top: 2px;
+    text-align: center;
+}
+.hua-quan { background: #D32F2F; }   /* 權 */
+.hua-ji   { background: #1A237E; }   /* 忌 */
+.hua-lu   { background: #2E7D32; }   /* 祿 */
+.hua-ke   { background: #4FC3F7; }   /* 科 */
+.palace-footer {
+    border-top: 1px solid #ccc;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1.4fr;
+    font-size: 11px;
+    text-align: center;
+    background: #fafafa;
+}
+.palace-footer > div {
+    padding: 3px 2px;
+    border-right: 1px solid #e0e0e0;
+    line-height: 1.3;
+}
+.palace-footer > div:last-child { border-right: none; }
+.foot-ganzhi { color: #000; font-weight: bold; }
+.foot-name   { color: #7B3F99; font-weight: bold; font-size: 12px; }
+.foot-age    { color: #666; }
+.foot-tag    { color: #D32F2F; font-weight: bold; font-size: 10px; }
+
+/* 中央資訊卡 */
+.center-card {
+    grid-column: 2 / span 2;
+    grid-row: 2 / span 2;
+    border: 1px solid #bbb;
+    background: #FFF8E1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 12px;
+    font-size: 13px;
+    line-height: 1.7;
+}
+.center-card .name { font-size: 16px; font-weight: bold; color: #1B2A4A; margin-bottom: 4px; }
+.center-card .ju { color: #7B3F99; font-weight: bold; margin-bottom: 6px; }
+.center-card .liunian-tag {
+    margin-top: 8px; background: #D32F2F; color: #fff;
+    padding: 4px 10px; border-radius: 4px; font-weight: bold;
+}
+
+@media (max-width: 768px) {
+    .lifedna-grid { grid-template-columns: repeat(2, 1fr); grid-template-rows: auto; }
+    .center-card { grid-column: 1 / span 2; grid-row: auto; }
+    .palace { min-height: 140px; }
+}
 </style>
 """, unsafe_allow_html=True)
 
-        layout = [
-            ["巳", "午", "未", "申"],
-            ["辰", None, None, "酉"],
-            ["卯", None, None, "戌"],
-            ["寅", "丑", "子", "亥"],
+        # 4x4 layout: 12 宮位 + 中央(2x2)資訊卡
+        # row, col (1-indexed grid positions)
+        layout_positions = [
+            ("巳", 1, 1), ("午", 1, 2), ("未", 1, 3), ("申", 1, 4),
+            ("辰", 2, 1),                                  ("酉", 2, 4),
+            ("卯", 3, 1),                                  ("戌", 3, 4),
+            ("寅", 4, 1), ("丑", 4, 2), ("子", 4, 3), ("亥", 4, 4),
         ]
-        html_grid = '<div class="palace-grid">'
 
-        for row in layout:
-            for zhi in row:
-                if zhi is None:
-                    html_grid += '<div></div>'
-                    continue
-                p = chart.palaces[zhi]
-                css_class = "palace-box"
-                if zhi == da_xian_zhi:
-                    css_class += " highlight-dx"
-                if zhi == liu_nian_zhi:
-                    css_class += " highlight-ln"
+        def render_star_col(stars_in_col):
+            """render 一個直書 column,內容為從上到下的星曜列表"""
+            html = '<div class="star-col">'
+            for star_str in stars_in_col:
+                base = star_str.split('(')[0]
+                hua = ''
+                if '(' in star_str:
+                    hua = star_str.split('(')[1].replace(')', '')
+                cls = 'star-main' if base in MAIN_STARS else 'star-aux'
+                html += f'<span class="{cls}">{base}</span>'
+                if hua:
+                    hua_cls = {
+                        '權': 'hua-quan', '忌': 'hua-ji',
+                        '祿': 'hua-lu', '科': 'hua-ke'
+                    }.get(hua, 'hua-quan')
+                    html += f'<span class="hua-badge {hua_cls}">{hua}</span>'
+            html += '</div>'
+            return html
 
-                dynamic_name = palace_name_map[zhi]
-                header = f"{zhi}宮 ({p['gan']}{zhi})<br>[{dynamic_name}]"
+        def render_palace(zhi):
+            p = chart.palaces[zhi]
+            classes = ["palace"]
+            if zhi == da_xian_zhi:
+                classes.append("dx-ming")
+            if zhi == liu_nian_zhi:
+                classes.append("ln-ming")
 
-                stars_html = ""
-                for star in p['stars']:
-                    base_star = star.split('(')[0]
-                    hua_suffix = ""
-                    if '(' in star:
-                        hua_suffix = star.split('(')[1].replace(')', '')
-                    stars_html += f'<div class="star-birth">{base_star}<small>{hua_suffix}</small></div>'
+            stars = p['stars']
+            # 將星曜分欄: 主星優先單獨成列,輔星可拼列。簡單策略:每 1-2 顆一列。
+            # 為求顯示穩定:主星各自一列(含化曜),其他星依序每 2 顆一列。
+            cols = []
+            buffer_aux = []
+            for s in stars:
+                base = s.split('(')[0]
+                if base in MAIN_STARS:
+                    if buffer_aux:
+                        cols.append(buffer_aux)
+                        buffer_aux = []
+                    cols.append([s])
+                else:
+                    buffer_aux.append(s)
+                    if len(buffer_aux) >= 3:
+                        cols.append(buffer_aux)
+                        buffer_aux = []
+            if buffer_aux:
+                cols.append(buffer_aux)
 
-                flies_html = ""
-                for f in p['si_hua_in']:
-                    if f['source_zhi'] == da_xian_zhi:
-                        tag = '<span class="tag-dx">大限</span>'
-                    elif f['source_zhi'] == liu_nian_zhi:
-                        tag = '<span class="tag-ln">流年</span>'
-                    else:
-                        tag = '<span style="color:#999;font-size:0.7em;">本命</span>'
-                    flies_html += f'<div>{tag} ←{f["source_zhi"]}{f["hua"]}</div>'
+            stars_html = '<div class="stars-area">'
+            for c in cols:
+                stars_html += render_star_col(c)
+            stars_html += '</div>'
 
-                html_grid += (
-                    f'<div class="{css_class}">'
-                    f'<div class="palace-header">{header}</div>'
-                    f'<div class="palace-stars">{stars_html}</div>'
-                    f'<div class="palace-fly">{flies_html}</div>'
-                    f'</div>'
-                )
+            # footer
+            ganzhi = f"{p['gan']}{zhi}"
+            dynamic_name = palace_name_map[zhi]
+            base_name = dynamic_name.replace("(身)", "")
+            short_name = NAME_SHORT.get(base_name, base_name[:1] if base_name else "")
+            shen_mark = "(身)" if "(身)" in dynamic_name else ""
+            name_disp = f"{short_name}{shen_mark}"
 
-        html_grid += '</div>'
+            age_range = chart.get_da_xian_age_range(zhi)
+            if age_range:
+                age_text = f"{age_range[0]}-{age_range[1]}"
+            else:
+                age_text = "-"
+
+            # 流大標籤: 流年宮名 + 大限對應宮名
+            ln_n = liu_nian_short.get(zhi, "")
+            dx_n = da_xian_short.get(zhi, "")
+            if ln_n and dx_n:
+                tag_text = f"流{ln_n}大{dx_n}"
+            elif ln_n:
+                tag_text = f"流{ln_n}"
+            elif dx_n:
+                tag_text = f"大{dx_n}"
+            else:
+                tag_text = ""
+
+            footer_html = (
+                f'<div class="palace-footer">'
+                f'<div class="foot-ganzhi">{ganzhi}</div>'
+                f'<div class="foot-name">{name_disp}</div>'
+                f'<div class="foot-age">{age_text}</div>'
+                f'<div class="foot-tag">{tag_text}</div>'
+                f'</div>'
+            )
+
+            corner_html = ""
+            if zhi == da_xian_zhi:
+                corner_html += '<div class="corner-dx">大命</div>'
+            if zhi == liu_nian_zhi:
+                corner_html += '<div class="corner-ln">流命</div>'
+            if zhi == lai_yin_zhi:
+                corner_html += '<div class="lai-yin">來因宮</div>'
+
+            return (
+                f'<div class="{" ".join(classes)}" '
+                f'style="grid-row:{layout_zhi_to_pos[zhi][0]};grid-column:{layout_zhi_to_pos[zhi][1]};">'
+                f'{corner_html}{stars_html}{footer_html}'
+                f'</div>'
+            )
+
+        layout_zhi_to_pos = {z: (r, c) for z, r, c in layout_positions}
+
+        # 中央資訊卡
+        try:
+            solar_full = chart.solar.toFullString()
+        except Exception:
+            solar_full = f"{chart.solar.getYear()}-{chart.solar.getMonth():02d}-{chart.solar.getDay():02d}"
+        try:
+            lunar_str = chart.lunar.toString()
+        except Exception:
+            lunar_str = ""
+        gender_text = f"{chart.wuxing_ju}{'陽' if chart.year_gan in ['甲','丙','戊','庚','壬'] else '陰'}{chart.gender}"
+        center_html = (
+            f'<div class="center-card">'
+            f'<div class="name">命主</div>'
+            f'<div class="ju">{gender_text}</div>'
+            f'<div>陽曆 {solar_full}</div>'
+            f'<div>農曆 {lunar_str}</div>'
+            f'<div style="margin-top:6px;">命宮 <b>{chart.ming_zhi}</b>　身宮 <b>{chart.shen_zhi}</b></div>'
+            f'<div class="liunian-tag">{current_age}歲　{query_year} {liu_nian_gan}{liu_nian_zhi}年</div>'
+            f'</div>'
+        )
+
+        html_grid = '<div class="lifedna-wrap"><div class="lifedna-grid">'
+        for zhi, _, _ in layout_positions:
+            html_grid += render_palace(zhi)
+        html_grid += center_html
+        html_grid += '</div></div>'
         st.markdown(html_grid, unsafe_allow_html=True)
 
-        st.caption("圖例: 🔴 本命星 | 🔵 藍框=大限命宮 | 🟢 綠框=流年命宮 | 標籤=飛化來源")
+        st.caption("圖例: 淡紅底=大限命宮(大命) | 紅框=流年命宮(流命) | 綠字「來因宮」=年干所在宮 | 化權紅・化忌深藍・化祿綠・化科淺藍")
